@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>K-Loudcast | Cloudburst Predictor</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="style.css" />
+    <script defer src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script defer src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script defer src="script.js"></script>
+</head>
+<body>
+    <header class="topbar">
+        <div class="logo-wrap">
+            <div class="logo-icon"></div>
+            <span class="logo-text">KLOUDCAST</span>
+        </div>
+        <nav>
+            <a href="#home">Home</a>
+            <a href="#live-map">Live Map</a>
+            <a href="#predictor">Predictor</a>
+        </nav>
+    </header>
+
+    <section id="home" class="hero">
+        <div class="hero-overlay"></div>
+        <div class="hero-content">
+            <h1>K L O U D C A S T</h1>
+            <p>Your Weather Safety Companion</p>
+            <a href="#predictor" class="hero-btn">Go To Predictor</a>
+        </div>
+    </section>
+
+    <main class="page">
+        <section id="live-map" class="card">
+            <h2>Live Cloudburst Map</h2>
+            <p class="muted">Click anywhere on the map to set exact cloudburst monitoring location.</p>
+            <div class="map-shell">
+                <aside class="map-panel">
+                    <h3>Weather Maps</h3>
+                    <button type="button" class="layer-btn active" data-layer="street">Street</button>
+                    <button type="button" class="layer-btn" data-layer="satellite">Satellite</button>
+                    <button type="button" class="layer-btn" data-layer="radar">Radar</button>
+                    <button type="button" class="layer-btn" data-layer="precipitation">Precipitation</button>
+                    <button type="button" class="layer-btn" data-layer="wind">Wind</button>
+                    <button type="button" class="layer-btn" data-layer="temperature">Temperature</button>
+                    <button type="button" class="layer-btn" data-layer="humidity">Humidity</button>
+                    <button type="button" class="layer-btn" data-layer="pressure">Pressure</button>
+                    <p id="layerStatus" class="layer-status">Layer: Street</p>
+                </aside>
+                <div id="map"></div>
+            </div>
+            <div class="location-grid">
+                <label>Selected Place
+                    <input id="selectedPlace" type="text" readonly />
+                </label>
+                <label>Latitude
+                    <input id="latitude" type="number" step="0.000001" readonly />
+                </label>
+                <label>Longitude
+                    <input id="longitude" type="number" step="0.000001" readonly />
+                </label>
+            </div>
+        </section>
+
+        <section id="predictor" class="card">
+            <h2>Predictor</h2>
+            <p class="muted">Enter all weather parameters and run prediction.</p>
+
+            <form id="predictForm">
+                <div class="form-grid two-col">
+                    <label>Date
+                        <input id="date" type="date" />
+                    </label>
+                    <label>Location
+                        <select id="location">
+                            <option value="">Select Location</option>
+                            <option value="Delhi">Delhi</option>
+                            <option value="Mumbai">Mumbai</option>
+                            <option value="Chennai">Chennai</option>
+                            <option value="Kolkata">Kolkata</option>
+                            <option value="Bengaluru">Bengaluru</option>
+                            <option value="Hyderabad">Hyderabad</option>
+                            <option value="Pune">Pune</option>
+                            <option value="Jaipur">Jaipur</option>
+                        </select>
+                    </label>
+                </div>
+
+                <div class="form-grid two-col">
+                    <label>Minimum Temperature
+                        <input id="minTemp" type="number" step="0.1" />
+                    </label>
+                    <label>Maximum Temperature
+                        <input id="maxTemp" type="number" step="0.1" />
+                    </label>
+                    <label>Rainfall (mm)
+                        <input id="rainfall" type="number" step="0.1" required />
+                    </label>
+                    <label>Evaporation
+                        <input id="evaporation" type="number" step="0.1" />
+                    </label>
+                    <label>Sunshine
+                        <input id="sunshine" type="number" step="0.1" />
+                    </label>
+                    <label>Wind Gust Speed
+                        <input id="windGustSpeed" type="number" step="0.1" />
+                    </label>
+                    <label>Wind Speed 9am
+                        <input id="windSpeed9am" type="number" step="0.1" />
+                    </label>
+                    <label>Wind Speed 3pm
+                        <input id="windSpeed3pm" type="number" step="0.1" />
+                    </label>
+                    <label>Humidity 9am
+                        <input id="humidity9am" type="number" step="0.1" />
+                    </label>
+                    <label>Humidity 3pm
+                        <input id="humidity3pm" type="number" step="0.1" />
+                    </label>
+                    <label>Pressure 9am
+                        <input id="pressure9am" type="number" step="0.1" />
+                    </label>
+                    <label>Pressure 3pm
+                        <input id="pressure3pm" type="number" step="0.1" />
+                    </label>
+                    <label>Temperature 9am
+                        <input id="temp9am" type="number" step="0.1" />
+                    </label>
+                    <label>Temperature 3pm
+                        <input id="temp3pm" type="number" step="0.1" />
+                    </label>
+                    <label>Cloud 9am
+                        <input id="cloud9am" type="number" step="0.1" />
+                    </label>
+                    <label>Cloud 3pm
+                        <input id="cloud3pm" type="number" step="0.1" />
+                    </label>
+                    <label>Wind Direction at 9am
+                        <select id="windDir9am">
+                            <option value="">Select Wind Direction at 9am</option>
+                            <option>N</option><option>NE</option><option>E</option><option>SE</option>
+                            <option>S</option><option>SW</option><option>W</option><option>NW</option>
+                        </select>
+                    </label>
+                    <label>Wind Direction at 3pm
+                        <select id="windDir3pm">
+                            <option value="">Select Wind Direction at 3pm</option>
+                            <option>N</option><option>NE</option><option>E</option><option>SE</option>
+                            <option>S</option><option>SW</option><option>W</option><option>NW</option>
+                        </select>
+                    </label>
+                    <label>Wind Gust Direction
+                        <select id="windGustDir">
+                            <option value="">Select Wind Gust Direction</option>
+                            <option>N</option><option>NE</option><option>E</option><option>SE</option>
+                            <option>S</option><option>SW</option><option>W</option><option>NW</option>
+                        </select>
+                    </label>
+                    <label>Rain Today
+                        <select id="rainToday">
+                            <option value="">Did it rain today</option>
+                            <option value="No">No</option>
+                            <option value="Yes">Yes</option>
+                        </select>
+                    </label>
+                    <label>Area (km²)
+                        <input id="area" type="number" step="0.1" required />
+                    </label>
+                    <label>Slope (degrees)
+                        <input id="slope" type="number" step="0.1" required />
+                    </label>
+                </div>
+
+                <button type="submit" id="predictBtn">Predict</button>
+            </form>
+        </section>
+
+        <section class="card output-wrap">
+            <h2>Prediction Output</h2>
+            <div class="result-grid">
+                <p><strong>Predicted Rainfall:</strong> <span id="predictedRainfall">-</span></p>
+                <p><strong>River Discharge:</strong> <span id="discharge">-</span></p>
+                <p><strong>Hydrological Impact Index:</strong> <span id="hii">-</span></p>
+                <p><strong>Risk Level:</strong> <span id="riskLevel">-</span></p>
+            </div>
+            <canvas id="resultChart"></canvas>
+        </section>
+    </main>
+</body>
+</html>
