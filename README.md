@@ -1,6 +1,6 @@
 # Cloudburst Prediction via Hydrological Analysis
 
-A complete B.Tech-ready mini project that combines:
+
 - **Machine Learning rainfall prediction** (Random Forest)
 - **Hydrological simulation** using `Q = C x I x A`
 - **Hydrological Impact Index (HII)** + risk classification
@@ -155,12 +155,4 @@ fetch("http://127.0.0.1:5000/predict", {
 
 ---
 
-## 8) Notes for Viva / Presentation
 
-- ML predicts rainfall from weather conditions.
-- Hydrological model converts rainfall into discharge using physical formula.
-- HII combines discharge, slope, and area impact.
-- Final risk level gives actionable interpretation.
-- Frontend provides easy non-technical interaction and chart visualization.
-
-This makes the project simple, practical, and impressive for final year demonstration.
