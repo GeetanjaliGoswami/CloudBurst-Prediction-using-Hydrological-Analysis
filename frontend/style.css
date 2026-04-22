@@ -282,6 +282,28 @@ button:hover {
     margin-bottom: 14px;
 }
 
+.charts-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 12px;
+}
+
+.chart-card {
+    border: 1px solid #dbe4ee;
+    border-radius: 12px;
+    padding: 10px;
+    background: #f8fbff;
+}
+
+.chart-card h3 {
+    margin: 0 0 10px;
+    font-size: 14px;
+}
+
+.full-width {
+    grid-column: 1 / -1;
+}
+
 #riskLevel {
     font-weight: 800;
     color: #b91c1c;
