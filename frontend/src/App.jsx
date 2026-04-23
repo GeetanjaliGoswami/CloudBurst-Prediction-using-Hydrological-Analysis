@@ -1,19 +1,9 @@
 import React from "react";
 import { useEffect, useMemo, useState } from "react";
-import {
-  MapContainer,
-  Marker,
-  Popup,
-  TileLayer,
-  useMap,
-  useMapEvents,
-} from "react-leaflet";
+import { NavLink, Route, Routes } from "react-router-dom";
+import { MapContainer, Marker, Popup, TileLayer, useMap, useMapEvents } from "react-leaflet";
 import L from "leaflet";
-import {
-  Bar,
-  Doughnut,
-  Radar,
-} from "react-chartjs-2";
+import { Bar, Doughnut, Line, Radar } from "react-chartjs-2";
 import {
   ArcElement,
   BarElement,
@@ -40,6 +30,11 @@ ChartJS.register(
 );
 
 const API_URL = "http://127.0.0.1:5000/predict";
+const AUTH_SIGNUP_URL = "http://127.0.0.1:5000/auth/signup";
+const AUTH_LOGIN_URL = "http://127.0.0.1:5000/auth/login";
+const EMAIL_REPORT_URL = "http://127.0.0.1:5000/send-report";
+const REPORTS_URL = "http://127.0.0.1:5000/community/reports";
+const PREF_URL = "http://127.0.0.1:5000/alerts/preferences";
 const INITIAL_POSITION = [22.9734, 78.6569];
 
 const cityCoordinates = {
@@ -76,14 +71,40 @@ function MapClickHandler({ onMapClick }) {
   return null;
 }
 
+function RiskTag({ level }) {
+  const riskClass = `risk-chip ${String(level || "low").toLowerCase()}`;
+  return <span className={riskClass}>{level || "LOW"}</span>;
+}
+
 export default function App() {
   const [position, setPosition] = useState(INITIAL_POSITION);
   const [place, setPlace] = useState("India");
-  const [layerStatus, setLayerStatus] = useState("Street");
   const [activeLayer, setActiveLayer] = useState("street");
   const [radarPath, setRadarPath] = useState("");
   const [output, setOutput] = useState(null);
   const [loading, setLoading] = useState(false);
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authMode, setAuthMode] = useState("login");
+  const [authMessage, setAuthMessage] = useState("");
+  const [emailReportLoading, setEmailReportLoading] = useState(false);
+  const [emailMessage, setEmailMessage] = useState("");
+  const [authForm, setAuthForm] = useState({ name: "", email: "", password: "" });
+  const [reportEmail, setReportEmail] = useState("");
+  const [communityFeed, setCommunityFeed] = useState([]);
+  const [communityMessage, setCommunityMessage] = useState("");
+  const [alertMessage, setAlertMessage] = useState("");
+  const [communityForm, setCommunityForm] = useState({
+    report_type: "Heavy Rain",
+    intensity: "Moderate",
+    description: "",
+    contact_email: "",
+  });
+  const [alertPref, setAlertPref] = useState({
+    threshold: "High",
+    radius_km: "20",
+    email_enabled: true,
+  });
 
   const [form, setForm] = useState({
     location: "",
@@ -111,9 +132,9 @@ export default function App() {
     slope: "",
   });
 
-  const updateFormField = (key, value) => {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  };
+  const updateFormField = (key, value) => setForm((prev) => ({ ...prev, [key]: value }));
+  const updateAuthField = (key, value) => setAuthForm((prev) => ({ ...prev, [key]: value }));
+  const updateCommunityField = (key, value) => setCommunityForm((prev) => ({ ...prev, [key]: value }));
 
   const applyWeather = (weather) => {
     setForm((prev) => ({
@@ -166,7 +187,7 @@ export default function App() {
         cloudCover: current.cloud_cover,
       });
     } catch {
-      // Keep manual input available if API fails.
+      // allow manual inputs
     }
   };
 
@@ -175,29 +196,6 @@ export default function App() {
     const placeName = await resolvePlace(lat, lng);
     setPlace(placeName);
     await fetchWeatherForLocation(lat, lng);
-  };
-
-  useEffect(() => {
-    fetchWeatherForLocation(INITIAL_POSITION[0], INITIAL_POSITION[1]);
-  }, []);
-
-  useEffect(() => {
-    const loadRadarPath = async () => {
-      try {
-        const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
-        const data = await response.json();
-        const latestRadar = data?.radar?.past?.[data.radar.past.length - 1];
-        setRadarPath(latestRadar?.path || "");
-      } catch {
-        setRadarPath("");
-      }
-    };
-    loadRadarPath();
-  }, []);
-
-  const handleLayerClick = (name) => {
-    setActiveLayer(name);
-    setLayerStatus(name.charAt(0).toUpperCase() + name.slice(1));
   };
 
   const toNumber = (value) => {
@@ -248,6 +246,51 @@ export default function App() {
     };
   }, [form, place, position]);
 
+  const factorPercentages = useMemo(() => {
+    if (!output) return [0, 0, 0, 0, 0, 0, 0];
+    const factors = [
+      { value: payload.rainfall ?? 0, max: 200 },
+      { value: payload.humidity ?? 0, max: 100 },
+      { value: payload.wind_speed ?? 0, max: 80 },
+      { value: payload.cloud_3pm ?? payload.cloud_9am ?? 0, max: 100 },
+      { value: payload.slope ?? 0, max: 70 },
+      { value: payload.area ?? 0, max: 200 },
+      { value: output.predicted_rainfall ?? 0, max: 200 },
+    ];
+    return factors.map((factor) => Math.min(100, (factor.value / factor.max) * 100));
+  }, [output, payload]);
+
+  useEffect(() => {
+    fetchWeatherForLocation(INITIAL_POSITION[0], INITIAL_POSITION[1]);
+  }, []);
+
+  useEffect(() => {
+    const loadRadarPath = async () => {
+      try {
+        const response = await fetch("https://api.rainviewer.com/public/weather-maps.json");
+        const data = await response.json();
+        const latestRadar = data?.radar?.past?.[data.radar.past.length - 1];
+        setRadarPath(latestRadar?.path || "");
+      } catch {
+        setRadarPath("");
+      }
+    };
+    loadRadarPath();
+  }, []);
+
+  useEffect(() => {
+    const fetchReports = async () => {
+      try {
+        const response = await fetch(REPORTS_URL);
+        const data = await response.json();
+        setCommunityFeed(data.reports || []);
+      } catch {
+        setCommunityFeed([]);
+      }
+    };
+    fetchReports();
+  }, []);
+
   const onSubmit = async (event) => {
     event.preventDefault();
     if (payload.rainfall === null || payload.area === null || payload.slope === null) {
@@ -260,7 +303,11 @@ export default function App() {
       const response = await fetch(API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        body: JSON.stringify({
+          ...payload,
+          user_id: user?.id ?? null,
+          email: (user?.email ?? reportEmail) || null,
+        }),
       });
       const result = await response.json();
       if (!response.ok) {
@@ -274,69 +321,170 @@ export default function App() {
     }
   };
 
-  const factorPercentages = useMemo(() => {
-    if (!output) return [0, 0, 0, 0, 0, 0, 0];
-    const factors = [
-      { value: payload.rainfall ?? 0, max: 200 },
-      { value: payload.humidity ?? 0, max: 100 },
-      { value: payload.wind_speed ?? 0, max: 80 },
-      { value: payload.cloud_3pm ?? payload.cloud_9am ?? 0, max: 100 },
-      { value: payload.slope ?? 0, max: 70 },
-      { value: payload.area ?? 0, max: 200 },
-      { value: output.predicted_rainfall ?? 0, max: 200 },
-    ];
-    return factors.map((f) => Math.min(100, (f.value / f.max) * 100));
-  }, [output, payload]);
+  const onAuthSubmit = async (event) => {
+    event.preventDefault();
+    setAuthMessage("");
+    setAuthLoading(true);
+    try {
+      const endpoint = authMode === "signup" ? AUTH_SIGNUP_URL : AUTH_LOGIN_URL;
+      const body =
+        authMode === "signup"
+          ? { name: authForm.name.trim(), email: authForm.email.trim(), password: authForm.password }
+          : { email: authForm.email.trim(), password: authForm.password };
+      const response = await fetch(endpoint, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || "Authentication failed.");
+      }
+      setUser(result.user);
+      setReportEmail(result.user.email);
+      setAuthMessage(result.message || "Authentication successful.");
+      setAuthForm({ name: "", email: "", password: "" });
+    } catch (error) {
+      setAuthMessage(error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const sendReportEmail = async () => {
+    setEmailMessage("");
+    if (!output) return setEmailMessage("Run prediction first, then send report.");
+    if (!reportEmail.trim()) return setEmailMessage("Please enter an email address.");
+    setEmailReportLoading(true);
+    try {
+      const response = await fetch(EMAIL_REPORT_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user?.id ?? null,
+          email: reportEmail.trim(),
+          location: payload.location,
+          latitude: position[0],
+          longitude: position[1],
+          prediction: output,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Unable to send email report.");
+      setEmailMessage(result.message || "Report email request completed.");
+    } catch (error) {
+      setEmailMessage(error.message);
+    } finally {
+      setEmailReportLoading(false);
+    }
+  };
+
+  const submitCommunityReport = async (event) => {
+    event.preventDefault();
+    setCommunityMessage("");
+    try {
+      const response = await fetch(REPORTS_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ...communityForm,
+          user_id: user?.id ?? null,
+          location: place,
+          latitude: position[0],
+          longitude: position[1],
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to submit report.");
+      setCommunityMessage("Community report submitted.");
+      setCommunityFeed((prev) => [result.report, ...prev].slice(0, 20));
+      setCommunityForm((prev) => ({ ...prev, description: "" }));
+    } catch (error) {
+      setCommunityMessage(error.message);
+    }
+  };
+
+  const saveAlertPreferences = async () => {
+    setAlertMessage("");
+    try {
+      const response = await fetch(PREF_URL, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: user?.id ?? null,
+          email: (user?.email ?? reportEmail) || null,
+          threshold: alertPref.threshold,
+          radius_km: Number(alertPref.radius_km),
+          email_enabled: alertPref.email_enabled,
+        }),
+      });
+      const result = await response.json();
+      if (!response.ok) throw new Error(result.error || "Failed to save preferences.");
+      setAlertMessage(result.message || "Alert preference saved.");
+    } catch (error) {
+      setAlertMessage(error.message);
+    }
+  };
 
   const baseLayerUrl =
     activeLayer === "satellite"
       ? "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"
       : "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
-
   const showRadar = activeLayer === "radar" && radarPath;
   const showPrecipitation = activeLayer === "precipitation" && radarPath;
+  const currentRisk = output?.risk_level || "Low";
+  const riskScore = Math.min(100, Math.max(10, Number(output?.hii || 20)));
 
-  return (
+  const DashboardScreen = (
     <>
-      <header className="topbar">
-        <div className="logo-wrap">
-          <div className="logo-icon" />
-          <span className="logo-text">KLOUDCAST</span>
-        </div>
-        <nav>
-          <a href="#home">Home</a>
-          <a href="#live-map">Live Map</a>
-          <a href="#predictor">Predictor</a>
-        </nav>
-      </header>
-
-      <section id="home" className="hero">
+      <section className="hero">
         <div className="hero-overlay" />
         <div className="hero-content">
           <h1>K L O U D C A S T</h1>
-          <p>Your Weather Safety Companion</p>
-          <a href="#predictor" className="hero-btn">Go To Predictor</a>
+          <p>Live Cloudburst Risk Dashboard</p>
         </div>
       </section>
-
       <main className="page">
-        <section id="live-map" className="card">
+        <section className="card stat-grid">
+          <div className="stat-card">
+            <h3>Current Risk</h3>
+            <RiskTag level={currentRisk} />
+            <div className="meter-wrap">
+              <div className="meter-fill" style={{ width: `${riskScore}%` }} />
+            </div>
+          </div>
+          <div className="stat-card">
+            <h3>Current Weather</h3>
+            <p>Temp: {payload.temperature ?? "-"} C</p>
+            <p>Humidity: {payload.humidity ?? "-"}%</p>
+            <p>Wind: {payload.wind_speed ?? "-"} km/h</p>
+          </div>
+          <div className="stat-card">
+            <h3>Prediction Summary</h3>
+            <p>
+              {output
+                ? `High likelihood window: next 2-4 hours at ${payload.location}.`
+                : "Run prediction to generate short-term warning summary."}
+            </p>
+          </div>
+        </section>
+
+        <section className="card">
           <h2>Live Cloudburst Map</h2>
-          <p className="muted">Click on map to auto-fetch weather factors.</p>
+          <p className="muted">Pick location to auto-fetch weather factors and update model inputs.</p>
           <div className="map-shell">
             <aside className="map-panel">
               <h3>Weather Maps</h3>
-              {["street", "satellite", "radar", "precipitation", "wind", "temperature", "humidity", "pressure"].map((name) => (
+              {["street", "satellite", "radar", "precipitation"].map((name) => (
                 <button
                   key={name}
                   type="button"
                   className={`layer-btn ${activeLayer === name ? "active" : ""}`}
-                  onClick={() => handleLayerClick(name)}
+                  onClick={() => setActiveLayer(name)}
                 >
                   {name.charAt(0).toUpperCase() + name.slice(1)}
                 </button>
               ))}
-              <p className="layer-status">Layer: {layerStatus}</p>
             </aside>
             <MapContainer center={position} zoom={5} style={{ minHeight: 390 }} id="map">
               <TileLayer url={baseLayerUrl} attribution="Map data providers" />
@@ -369,167 +517,370 @@ export default function App() {
               <MapMover center={position} />
             </MapContainer>
           </div>
-          <div className="location-grid">
+        </section>
+      </main>
+    </>
+  );
+
+  const AnalysisScreen = (
+    <main className="page page-top">
+      <section className="card">
+        <h2>Detailed Prediction & Hydrolysis Factors</h2>
+        <p className="muted">Use factor inputs, run model, inspect atmospheric and risk composition graphs.</p>
+        <form id="predictForm" onSubmit={onSubmit}>
+          <div className="form-grid two-col">
             <label>
-              Selected Place
-              <input type="text" value={place} readOnly />
-            </label>
-            <label>
-              Latitude
-              <input type="number" value={position[0].toFixed(6)} readOnly />
-            </label>
-            <label>
-              Longitude
-              <input type="number" value={position[1].toFixed(6)} readOnly />
+              Location
+              <select
+                value={form.location}
+                onChange={async (e) => {
+                  const value = e.target.value;
+                  updateFormField("location", value);
+                  if (cityCoordinates[value]) {
+                    const [lat, lng] = cityCoordinates[value];
+                    await setPoint(lat, lng);
+                  }
+                }}
+              >
+                <option value="">Select Location</option>
+                {Object.keys(cityCoordinates).map((city) => (
+                  <option key={city} value={city}>
+                    {city}
+                  </option>
+                ))}
+              </select>
             </label>
           </div>
-        </section>
-
-        <section id="predictor" className="card">
-          <h2>Predictor</h2>
-          <p className="muted">Cloudburst influence factors (no timing fields).</p>
-          <form id="predictForm" onSubmit={onSubmit}>
-            <div className="form-grid two-col">
-              <label>
-                Location
-                <select
-                  value={form.location}
-                  onChange={async (e) => {
-                    const value = e.target.value;
-                    updateFormField("location", value);
-                    if (cityCoordinates[value]) {
-                      const [lat, lng] = cityCoordinates[value];
-                      await setPoint(lat, lng);
-                    }
-                  }}
-                >
-                  <option value="">Select Location</option>
-                  {Object.keys(cityCoordinates).map((city) => (
-                    <option key={city} value={city}>{city}</option>
-                  ))}
-                </select>
+          <div className="form-grid two-col">
+            {[
+              ["minTemp", "Minimum Temperature"],
+              ["maxTemp", "Maximum Temperature"],
+              ["rainfall", "Rainfall (mm)"],
+              ["evaporation", "Evaporation"],
+              ["sunshine", "Sunshine"],
+              ["windGustSpeed", "Wind Gust Speed"],
+              ["windSpeed9am", "Wind Speed 9am"],
+              ["windSpeed3pm", "Wind Speed 3pm"],
+              ["humidity9am", "Humidity 9am"],
+              ["humidity3pm", "Humidity 3pm"],
+              ["pressure9am", "Pressure 9am"],
+              ["pressure3pm", "Pressure 3pm"],
+              ["temp9am", "Temperature 9am"],
+              ["temp3pm", "Temperature 3pm"],
+              ["cloud9am", "Cloud 9am"],
+              ["cloud3pm", "Cloud 3pm"],
+              ["area", "Area (km²)"],
+              ["slope", "Slope (degrees)"],
+            ].map(([key, label]) => (
+              <label key={key}>
+                {label}
+                <input
+                  type="number"
+                  step="0.1"
+                  value={form[key]}
+                  onChange={(e) => updateFormField(key, e.target.value)}
+                  required={["rainfall", "area", "slope"].includes(key)}
+                />
               </label>
-            </div>
-
-            <div className="form-grid two-col">
-              {[
-                ["minTemp", "Minimum Temperature"],
-                ["maxTemp", "Maximum Temperature"],
-                ["rainfall", "Rainfall (mm)"],
-                ["evaporation", "Evaporation"],
-                ["sunshine", "Sunshine"],
-                ["windGustSpeed", "Wind Gust Speed"],
-                ["windSpeed9am", "Wind Speed 9am"],
-                ["windSpeed3pm", "Wind Speed 3pm"],
-                ["humidity9am", "Humidity 9am"],
-                ["humidity3pm", "Humidity 3pm"],
-                ["pressure9am", "Pressure 9am"],
-                ["pressure3pm", "Pressure 3pm"],
-                ["temp9am", "Temperature 9am"],
-                ["temp3pm", "Temperature 3pm"],
-                ["cloud9am", "Cloud 9am"],
-                ["cloud3pm", "Cloud 3pm"],
-                ["area", "Area (km²)"],
-                ["slope", "Slope (degrees)"],
-              ].map(([key, label]) => (
-                <label key={key}>
-                  {label}
-                  <input
-                    type="number"
-                    step="0.1"
-                    value={form[key]}
-                    onChange={(e) => updateFormField(key, e.target.value)}
-                    required={["rainfall", "area", "slope"].includes(key)}
-                  />
-                </label>
-              ))}
-              {[
-                ["windDir9am", "Wind Direction at 9am"],
-                ["windDir3pm", "Wind Direction at 3pm"],
-                ["windGustDir", "Wind Gust Direction"],
-              ].map(([key, label]) => (
-                <label key={key}>
-                  {label}
-                  <select value={form[key]} onChange={(e) => updateFormField(key, e.target.value)}>
-                    <option value="">Select</option>
-                    <option value="N">N</option>
-                    <option value="NE">NE</option>
-                    <option value="E">E</option>
-                    <option value="SE">SE</option>
-                    <option value="S">S</option>
-                    <option value="SW">SW</option>
-                    <option value="W">W</option>
-                    <option value="NW">NW</option>
-                  </select>
-                </label>
-              ))}
-              <label>
-                Rain Today
-                <select value={form.rainToday} onChange={(e) => updateFormField("rainToday", e.target.value)}>
-                  <option value="">Did it rain today</option>
-                  <option value="No">No</option>
-                  <option value="Yes">Yes</option>
-                </select>
-              </label>
-            </div>
-            <button type="submit" id="predictBtn">{loading ? "Predicting..." : "Predict"}</button>
-          </form>
-        </section>
-
-        <section className="card output-wrap">
-          <h2>Prediction Output</h2>
-          <div className="result-grid">
-            <p><strong>Predicted Rainfall:</strong> {output ? `${output.predicted_rainfall} mm` : "-"}</p>
-            <p><strong>River Discharge:</strong> {output?.discharge ?? "-"}</p>
-            <p><strong>Hydrological Impact Index:</strong> {output?.hii ?? "-"}</p>
-            <p><strong>Risk Level:</strong> <span id="riskLevel">{output?.risk_level ?? "-"}</span></p>
+            ))}
           </div>
-          <div className="charts-grid">
-            <div className="chart-card">
-              <h3>Core Output Graph</h3>
-              <Bar
-                data={{
-                  labels: ["Predicted Rainfall", "Discharge", "HII"],
-                  datasets: [{
+          <button type="submit">{loading ? "Predicting..." : "Run Detailed Prediction"}</button>
+        </form>
+      </section>
+
+      <section className="card">
+        <h2>Model Output</h2>
+        <div className="result-grid">
+          <p>
+            <strong>Predicted Rainfall:</strong> {output ? `${output.predicted_rainfall} mm` : "-"}
+          </p>
+          <p>
+            <strong>River Discharge:</strong> {output?.discharge ?? "-"}
+          </p>
+          <p>
+            <strong>Hydrological Impact Index:</strong> {output?.hii ?? "-"}
+          </p>
+          <p>
+            <strong>Risk Level:</strong> <RiskTag level={output?.risk_level || "Low"} />
+          </p>
+        </div>
+        <div className="charts-grid">
+          <div className="chart-card">
+            <h3>Core Output Graph</h3>
+            <Bar
+              data={{
+                labels: ["Predicted Rainfall", "Discharge", "HII"],
+                datasets: [
+                  {
                     data: output ? [output.predicted_rainfall, output.discharge, output.hii] : [0, 0, 0],
                     backgroundColor: ["#0ea5e9", "#22c55e", "#f97316"],
-                  }],
-                }}
-                options={{ responsive: true, plugins: { legend: { display: false } } }}
-              />
-            </div>
-            <div className="chart-card">
-              <h3>Cloudburst Influence Factors</h3>
-              <Radar
-                data={{
-                  labels: ["Rainfall", "Humidity", "Wind Speed", "Cloud Cover", "Slope", "Area", "Pred Rain"],
-                  datasets: [{
+                  },
+                ],
+              }}
+              options={{ responsive: true, plugins: { legend: { display: false } } }}
+            />
+          </div>
+          <div className="chart-card">
+            <h3>Hydrolysis Influence Factors</h3>
+            <Radar
+              data={{
+                labels: ["Rainfall", "Humidity", "Wind Speed", "Cloud Cover", "Slope", "Area", "Pred Rain"],
+                datasets: [
+                  {
                     label: "Influence Strength (%)",
                     data: factorPercentages,
                     backgroundColor: "rgba(14, 165, 233, 0.25)",
                     borderColor: "#0284c7",
-                  }],
-                }}
-                options={{ responsive: true, scales: { r: { beginAtZero: true, max: 100 } } }}
-              />
-            </div>
-            <div className="chart-card full-width">
-              <h3>Risk Composition</h3>
-              <Doughnut
-                data={{
-                  labels: ["Risk Influence", "Safety Margin"],
-                  datasets: [{
+                  },
+                ],
+              }}
+              options={{ responsive: true, scales: { r: { beginAtZero: true, max: 100 } } }}
+            />
+          </div>
+          <div className="chart-card full-width">
+            <h3>Atmospheric Trend</h3>
+            <Line
+              data={{
+                labels: ["T-3h", "T-2h", "T-1h", "Now", "+1h", "+2h", "+3h"],
+                datasets: [
+                  {
+                    label: "CAPE Proxy",
+                    borderColor: "#ef4444",
+                    data: factorPercentages.map((v, i) => Math.max(0, v - (i % 3) * 4)).slice(0, 7),
+                  },
+                  {
+                    label: "Moisture Proxy",
+                    borderColor: "#0ea5e9",
+                    data: factorPercentages.map((v, i) => Math.min(100, v + (i % 4) * 3)).slice(0, 7),
+                  },
+                ],
+              }}
+              options={{ responsive: true }}
+            />
+          </div>
+          <div className="chart-card full-width">
+            <h3>Risk Composition</h3>
+            <Doughnut
+              data={{
+                labels: ["Risk Influence", "Safety Margin"],
+                datasets: [
+                  {
                     data: [Math.min(100, output?.hii || 0), Math.max(0, 100 - Math.min(100, output?.hii || 0))],
                     backgroundColor: ["#ef4444", "#dbeafe"],
                     borderWidth: 0,
-                  }],
-                }}
-                options={{ responsive: true, cutout: "70%" }}
-              />
-            </div>
+                  },
+                ],
+              }}
+              options={{ responsive: true, cutout: "70%" }}
+            />
           </div>
-        </section>
-      </main>
+        </div>
+      </section>
+    </main>
+  );
+
+  const CommunityScreen = (
+    <main className="page page-top">
+      <section className="card auth-card">
+        <h2>User Login / Signup</h2>
+        <div className="auth-switch">
+          <button
+            type="button"
+            className={`tab-btn ${authMode === "login" ? "active-tab" : ""}`}
+            onClick={() => setAuthMode("login")}
+          >
+            Login
+          </button>
+          <button
+            type="button"
+            className={`tab-btn ${authMode === "signup" ? "active-tab" : ""}`}
+            onClick={() => setAuthMode("signup")}
+          >
+            Signup
+          </button>
+        </div>
+        <form className="auth-form" onSubmit={onAuthSubmit}>
+          {authMode === "signup" && (
+            <label>
+              Full Name
+              <input
+                type="text"
+                value={authForm.name}
+                onChange={(e) => updateAuthField("name", e.target.value)}
+                required
+              />
+            </label>
+          )}
+          <label>
+            Email
+            <input
+              type="email"
+              value={authForm.email}
+              onChange={(e) => updateAuthField("email", e.target.value)}
+              required
+            />
+          </label>
+          <label>
+            Password
+            <input
+              type="password"
+              value={authForm.password}
+              onChange={(e) => updateAuthField("password", e.target.value)}
+              required
+            />
+          </label>
+          <button type="submit">
+            {authLoading ? "Please wait..." : authMode === "signup" ? "Create Account" : "Login"}
+          </button>
+        </form>
+        {authMessage && <p className="status-text">{authMessage}</p>}
+      </section>
+
+      <section className="card email-card">
+        <h2>Email Weather Report</h2>
+        <div className="email-row">
+          <input
+            type="email"
+            placeholder="Enter email to receive report"
+            value={reportEmail}
+            onChange={(e) => setReportEmail(e.target.value)}
+          />
+          <button type="button" onClick={sendReportEmail}>
+            {emailReportLoading ? "Sending..." : "Send Weather Data"}
+          </button>
+        </div>
+        {emailMessage && <p className="status-text">{emailMessage}</p>}
+      </section>
+
+      <section className="card">
+        <h2>Community Report Submission</h2>
+        <form className="form-grid two-col" onSubmit={submitCommunityReport}>
+          <label>
+            Report Type
+            <select
+              value={communityForm.report_type}
+              onChange={(e) => updateCommunityField("report_type", e.target.value)}
+            >
+              <option>Heavy Rain</option>
+              <option>Rapid Stream Rise</option>
+              <option>Lightning Strike</option>
+              <option>Cloudburst Sign</option>
+            </select>
+          </label>
+          <label>
+            Intensity
+            <select
+              value={communityForm.intensity}
+              onChange={(e) => updateCommunityField("intensity", e.target.value)}
+            >
+              <option>Low</option>
+              <option>Moderate</option>
+              <option>High</option>
+              <option>Severe</option>
+            </select>
+          </label>
+          <label className="full-width">
+            Description
+            <input
+              type="text"
+              value={communityForm.description}
+              onChange={(e) => updateCommunityField("description", e.target.value)}
+              placeholder="Describe your observation"
+              required
+            />
+          </label>
+          <label>
+            Contact Email
+            <input
+              type="email"
+              value={communityForm.contact_email}
+              onChange={(e) => updateCommunityField("contact_email", e.target.value)}
+            />
+          </label>
+          <button type="submit">Submit Report</button>
+        </form>
+        {communityMessage && <p className="status-text">{communityMessage}</p>}
+      </section>
+
+      <section className="card">
+        <h2>Alert Preferences</h2>
+        <div className="form-grid two-col">
+          <label>
+            Risk Threshold
+            <select
+              value={alertPref.threshold}
+              onChange={(e) => setAlertPref((prev) => ({ ...prev, threshold: e.target.value }))}
+            >
+              <option>Moderate</option>
+              <option>High</option>
+              <option>Severe</option>
+            </select>
+          </label>
+          <label>
+            Radius (km)
+            <input
+              type="number"
+              value={alertPref.radius_km}
+              onChange={(e) => setAlertPref((prev) => ({ ...prev, radius_km: e.target.value }))}
+            />
+          </label>
+          <label>
+            Email Alerts
+            <select
+              value={String(alertPref.email_enabled)}
+              onChange={(e) =>
+                setAlertPref((prev) => ({ ...prev, email_enabled: e.target.value === "true" }))
+              }
+            >
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <button type="button" onClick={saveAlertPreferences}>
+            Save Preferences
+          </button>
+        </div>
+        {alertMessage && <p className="status-text">{alertMessage}</p>}
+      </section>
+
+      <section className="card">
+        <h2>Community Feed</h2>
+        <div className="feed-list">
+          {communityFeed.length === 0 ? (
+            <p className="muted">No reports yet.</p>
+          ) : (
+            communityFeed.map((item) => (
+              <div key={item.id || `${item.report_type}-${item.created_at}`} className="feed-item">
+                <strong>{item.report_type}</strong> - {item.intensity} at {item.location}
+                <p>{item.description}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </section>
+    </main>
+  );
+
+  return (
+    <>
+      <header className="topbar">
+        <div className="logo-wrap">
+          <div className="logo-icon" />
+          <span className="logo-text">KLOUDCAST</span>
+        </div>
+        <nav>
+          <NavLink to="/" end>
+            Dashboard
+          </NavLink>
+          <NavLink to="/analysis">Detailed Analysis</NavLink>
+          <NavLink to="/community">Alerts & Community</NavLink>
+        </nav>
+      </header>
+      <Routes>
+        <Route path="/" element={DashboardScreen} />
+        <Route path="/analysis" element={AnalysisScreen} />
+        <Route path="/community" element={CommunityScreen} />
+      </Routes>
     </>
   );
 }
